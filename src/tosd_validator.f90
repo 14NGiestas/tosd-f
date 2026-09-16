@@ -37,6 +37,7 @@ contains
         call check_dependency(doc, schema % dependencies(i), errors)
       end do
     end if
+    call check_root_closed(schema, doc, errors)
   end subroutine tosd_validate
 
   !! Convenience: load and validate a file.
@@ -77,8 +78,11 @@ contains
     end if
     call check_kind(e, v, p, errors)
     if (e % is_enum) call check_allowed(e, v, p, errors)
-    ! `any` accepts any value, including tables with undeclared keys
-    if (e % kind /= tosd_any) call check_children_declared(schema, e, v, p, errors)
+    ! SPEC: a table with at least one fixed child is CLOSED (undeclared keys
+    ! are errors); a table with none is OPEN (accept anything); `any` always
+    ! accepts anything. The root is closed (checked in tosd_validate).
+    if (e % kind == tosd_table .and. has_fixed_children(schema, e)) &
+      call check_children_declared(schema, e, v, p, errors)
   end subroutine check_element
 
   !! The TOML kind of the value must match the declared built-in type.
@@ -220,7 +224,65 @@ contains
     found = .true.
   end function present_in
 
-  !! Is this exact path declared in the schema (or is it on the way to one)?
+  !! SPEC: the root is closed even when `[elements]` is empty — every
+  !! top-level document key must be a declared element.
+  subroutine check_root_closed(schema, doc, errors)
+    type(tosd_schema_t), intent(in) :: schema
+    type(toml_table), intent(inout) :: doc
+    type(tosd_error_list_t), intent(inout) :: errors
+    type(toml_key), allocatable :: keys(:)
+    character(:), allocatable :: key
+    integer :: i
+
+    call doc % get_keys(keys)
+    do i = 1, size(keys)
+      key = trim(adjustl(keys(i) % key))
+      ! SPEC: the reserved root `[toml-schema]` metadata table is ignored
+      ! during application-data validation (unless the schema declares it).
+      if (trim(key) == "toml-schema") cycle
+      if (.not. declared_top(schema, key)) &
+        call errors % add(tosd_err_unexpected, key, "key is not described by the schema")
+    end do
+  end subroutine check_root_closed
+
+  !! A table element is closed iff the schema declares fixed children below
+  !! its path (SPEC: effective closure set non-empty).
+  logical function has_fixed_children(schema, e) result(closed)
+    type(tosd_schema_t), intent(in) :: schema
+    type(tosd_element_t), intent(in) :: e
+    integer :: i, n, m
+
+    closed = .false.
+    if (.not. allocated(schema % elements)) return
+    m = size(e % path)
+    do i = 1, size(schema % elements)
+      n = size(schema % elements(i) % path)
+      if (n > m) then
+        if (all(schema % elements(i) % path(:m) == e % path)) then
+          closed = .true.
+          return
+        end if
+      end if
+    end do
+  end function has_fixed_children
+
+  !! Is this top-level key the start of any declared path?
+  logical function declared_top(schema, key) result(yes)
+    type(tosd_schema_t), intent(in) :: schema
+    character(*), intent(in) :: key
+    integer :: i
+
+    yes = .false.
+    if (.not. allocated(schema % elements)) return
+    do i = 1, size(schema % elements)
+      if (size(schema % elements(i) % path) >= 1) then
+        if (trim(schema % elements(i) % path(1)) == trim(key)) then
+          yes = .true.
+          return
+        end if
+      end if
+    end do
+  end function declared_top
   logical function declared(schema, path) result(yes)
     type(tosd_schema_t), intent(in) :: schema
     character(*), intent(in) :: path(:)

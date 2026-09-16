@@ -5,7 +5,8 @@ module test_tosd_f
   use tosd_errors
   use tosd_schema
   use tosd_validator
-  use tomlf, only: toml_table, toml_load
+  use tomlf, only: toml_table, toml_array, toml_keyval, toml_value, toml_load, toml_error, get_value
+  use tomlf, only: toml_len => len
   use testdrive, only: new_unittest, unittest_type, error_type, check
   implicit none
   private
@@ -25,7 +26,8 @@ contains
       new_unittest("spec_compliance_refused", test_compliance), &
       new_unittest("unknown_entry_refused", test_unknown_entry), &
       new_unittest("docs_dir_scan", test_docs_dir_scan), &
-      new_unittest("schema_dump", test_dump) &
+      new_unittest("schema_dump", test_dump), &
+      new_unittest("conformance_corpus", test_conformance) &
     ]
   end subroutine collect
 
@@ -231,6 +233,137 @@ contains
     if (allocated(error)) return
     call check(error, saw_major, message="dump lists kind and allowed values")
   end subroutine test_dump
+
+  !> Conformance against the language-neutral corpus (SPEC repo,
+  !> `conformance/`): compares the OBSERVED outcome per case with the
+  !> manifest `expect` (the exit-code contract: valid / validation-failure /
+  !> schema-load-error / document-parse-error). Discovery cases are skipped
+  !> (no discovery support). Diagnostic-code matching is NOT asserted
+  !> (stage 2: our codes are not the registry names yet).
+  !>
+  !> Driven by `TOSD_CONFORMANCE_DIR` (corpus root, contains `manifest.toml`
+  !> and `cases/<id>/`); skips quietly when unset. `TOSD_CONFORMANCE_MIN_PASS`
+  !> (default 0) floors the pass count so a local run can catch regressions.
+  subroutine test_conformance(error)
+    type(error_type), allocatable, intent(out) :: error
+    character(1024) :: corp, minpass_s
+    integer :: st, minpass, ios
+
+    call get_environment_variable("TOSD_CONFORMANCE_DIR", corp, status=st)
+    if (st /= 0 .or. len_trim(corp) == 0) return
+    minpass = 0
+    call get_environment_variable("TOSD_CONFORMANCE_MIN_PASS", minpass_s, status=st)
+    if (st == 0 .and. len_trim(minpass_s) > 0) read (minpass_s, *, iostat=ios) minpass
+    call run_corpus(trim(corp), minpass, error)
+  end subroutine test_conformance
+
+  subroutine run_corpus(corp, minpass, error)
+    character(*), intent(in) :: corp
+    integer, intent(in) :: minpass
+    type(error_type), allocatable, intent(out) :: error
+    type(toml_table), allocatable :: manifest
+    type(toml_error), allocatable :: err
+    class(toml_value), pointer :: v
+    type(toml_array), pointer :: cases
+    type(toml_table), pointer :: c
+    class(toml_value), pointer :: w
+    character(:), allocatable :: id, expect, mode
+    logical :: has_doc
+    integer :: n, i, npass, nfail, nskip, stat
+    character(64) :: counts
+
+    nullify (v, w, cases, c)
+    call toml_load(manifest, corp//"/manifest.toml", error=err)
+    call check(error, .not. allocated(err), message="conformance manifest parses")
+    if (allocated(error)) return
+    call manifest % get("case", v)
+    select type (v)
+    type is (toml_array)
+      cases => v
+    class default
+      call check(error, .false., message="manifest has [[case]] array")
+      return
+    end select
+    n = toml_len(cases)
+    npass = 0
+    nfail = 0
+    nskip = 0
+    do i = 1, n
+      call cases % get(i, w)
+      select type (w)
+      type is (toml_table)
+        c => w
+      class default
+        cycle
+      end select
+      id = ""; expect = ""; mode = "explicit"; has_doc = .false.
+      call get_value(c, "id", id, stat=stat)
+      call get_value(c, "expect", expect, stat=stat)
+      call get_value(c, "document", has_doc, stat=stat)
+      call get_value(c, "mode", mode, stat=stat)
+      ! intent(out) deallocates even on missing key: restore the default
+      if (stat /= 0) mode = "explicit"
+      if (len_trim(id) == 0 .or. len_trim(expect) == 0) cycle
+      if (trim(mode) == "discovery") then
+        nskip = nskip + 1
+        cycle
+      end if
+      if (check_case(corp, trim(id), trim(expect), has_doc)) then
+        npass = npass + 1
+      else
+        nfail = nfail + 1
+        write (*, '(a)') "  non-conforming: "//trim(id)//" (expected "//trim(expect)//")"
+      end if
+    end do
+    write (counts, '(i0,a,i0,a,i0,a,i0)') npass, " pass, ", nfail, " fail, ", nskip, &
+      " skip of ", n
+    write (*, '(a,a)') "  conformance: ", trim(counts)
+    call check(error, npass >= minpass, message="conformance pass floor ("//trim(counts)//")")
+  end subroutine run_corpus
+
+  !> True when the observed outcome for one case matches `expect`.
+  logical function check_case(corp, id, expect, has_doc) result(ok)
+    character(*), intent(in) :: corp, id, expect
+    logical, intent(in) :: has_doc
+    type(tosd_schema_t) :: schema
+    type(tosd_error_list_t) :: errs
+    type(toml_table), allocatable :: doc
+    type(toml_error), allocatable :: err
+    character(1024) :: sfile, dfile
+
+    sfile = corp//"/cases/"//id//"/schema.tosd"
+    dfile = corp//"/cases/"//id//"/document.toml"
+    select case (trim(expect))
+    case ("schema-load-error")
+      call schema % load(trim(sfile))
+      ok = .not. schema % is_ok()
+    case ("document-parse-error")
+      call toml_load(doc, trim(dfile), error=err)
+      ok = allocated(err)
+    case ("validation-failure")
+      call schema % load(trim(sfile))
+      if (.not. schema % is_ok()) then
+        ok = .false.
+        return
+      end if
+      if (.not. has_doc) then
+        ok = .false.
+        return
+      end if
+      call tosd_validate_file(schema, trim(dfile), errs)
+      ok = errs % size() > 0
+    case ("valid")
+      call schema % load(trim(sfile))
+      if (.not. schema % is_ok()) then
+        ok = .false.
+        return
+      end if
+      call tosd_validate_file(schema, trim(dfile), errs)
+      ok = errs % size() == 0
+    case default
+      ok = .false.
+    end select
+  end function check_case
   !>
   !> Set `TOSD_SCHEMA_FILE` and `TOSD_DOCS_DIR` to validate every `*.toml`
   !> under the directory against the schema. Files that fail to parse are

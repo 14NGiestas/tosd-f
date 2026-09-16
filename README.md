@@ -81,9 +81,10 @@ one schema, plus the unknown-entry case).
 Checks performed on documents: required/optional presence, built-in kinds
 (`string`, `integer`, `float` — integers accepted where floats are declared —
 `boolean`, `table`, `array`, `any`, `datetime` reported by kind), string
-`allowedvalues` membership, `dependentrequired`, and undeclared keys under
-table-typed elements (`tosd_err_unexpected`; `any`-typed elements accept
-anything, including tables with undeclared keys).
+`allowedvalues` membership, `dependentrequired`, and unknown keys: a table
+with at least one fixed child is *closed* (undeclared keys are errors); a
+table with none is *open* (anything goes); the document root is always
+closed, except the reserved `[toml-schema]` metadata table, which is ignored.
 
 Introspection: `schema % dump(unit)` writes one `path : kind` line per declared
 element (plus `dependentrequired` rules) — the debugging companion to
@@ -107,6 +108,30 @@ Files that fail to parse are skipped (fragments); `unexpected key`
 diagnostics are ignored, mirroring a rules-only run against a partial schema;
 `TOSD_EXPECTED_VIOLATIONS` (default 0) is the expected number of files with
 RULE violations (missing / type / allowed / dependent / value).
+
+## Conformance
+
+`conformance_corpus` replays the language-neutral corpus from the
+[TOML Schema specification repo](https://github.com/brunoborges/toml-schema)
+(`conformance/`, 96 cases), comparing the observed outcome per case with the
+manifest `expect` (the exit-code contract). Discovery cases are skipped (no
+discovery support); diagnostic-code matching is not asserted yet. Driven by
+`TOSD_CONFORMANCE_DIR` (skips when unset) with a
+`TOSD_CONFORMANCE_MIN_PASS` floor (default 0):
+
+```bash
+TOSD_CONFORMANCE_DIR=/path/to/toml-schema/conformance \
+  fortran-fpm test
+```
+
+Current tally: **42 pass, 48 fail, 6 skip**. Every fail is a documented
+feature gap, never a silent ignore: unimplemented properties
+(`oneof`/`anyof`/`allof`/`items`/`permember`/`collection`/
+conditionals/`keypattern`/`pattern`/`format`/min/max/length/
+`exactlyone`/`mutuallyexclusive`, reusable `types.*`, non-string
+`allowedvalues`) are refused at schema load, and six malformed schemas the
+spec rejects are still accepted (version semantics, `default` kind check,
+reserved built-in names).
 
 ## Notes on the toml-f API (validated against 0.5.x)
 
