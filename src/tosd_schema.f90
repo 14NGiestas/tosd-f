@@ -12,7 +12,8 @@ module tosd_schema
   use tosd_kinds
   use tosd_errors
   use tomlf, only: toml_table, toml_array, toml_keyval, toml_value, toml_key, &
-                   toml_load, get_value, get_keys, toml_error
+                   toml_load, get_value, toml_error
+  use tomlf, only: tosd_len => len
   implicit none
   private
 
@@ -58,18 +59,23 @@ contains
     character(*), intent(in) :: filename
     type(toml_table), allocatable :: root
     type(toml_error), allocatable :: error
-    type(toml_table), pointer :: elems
+    class(toml_value), pointer :: child
+    character(tosd_path_len) :: empty(0)
 
+    nullify (child)
     call self % free()
-    call toml_load(root, filename, error)
+    call toml_load(root, filename, error=error)
     if (allocated(error)) then
       call self % errors % add(tosd_err_schema, "", "cannot parse schema "//filename//": "//error%message)
       return
     end if
     call load_meta(self, root)
     if (root % has_key("elements")) then
-      call get_value(root, "elements", elems)
-      if (associated(elems)) call walk(self, elems, [character(64) ::])
+    call root % get("elements", child)
+      select type (child)
+      type is (toml_table)
+        call walk(self, child, empty)
+      end select
     else
       call self % errors % add(tosd_err_schema, "", "schema has no [elements] table")
     end if
@@ -79,21 +85,26 @@ contains
   subroutine load_meta(self, root)
     class(tosd_schema_t), intent(inout) :: self
     type(toml_table), intent(in) :: root
-    type(toml_table), pointer :: meta
-    character(:), allocatable :: version
+    class(toml_value), pointer :: v, w
 
+    nullify (v, w)
     if (.not. root % has_key("toml-schema")) then
       call self % errors % add(tosd_err_schema, "", "schema lacks the [toml-schema] table")
       return
     end if
-    call get_value(root, "toml-schema", meta)
-    if (.not. associated(meta)) return
-    if (.not. meta % has_key("version")) then
-      call self % errors % add(tosd_err_schema, "", "[toml-schema] has no version")
-      return
-    end if
-    call get_value(meta, "version", version)
-    self % version = version
+    call root % get("toml-schema", v)
+    select type (v)
+    type is (toml_table)
+      if (.not. v % has_key("version")) then
+        call self % errors % add(tosd_err_schema, "", "[toml-schema] has no version")
+        return
+      end if
+      call v % get("version", w)
+      select type (w)
+      type is (toml_keyval)
+        call get_value(w, self % version)
+      end select
+    end select
   end subroutine load_meta
 
   !! Recursively read one level of `[elements]`: properties first, then children.
@@ -105,26 +116,39 @@ contains
     type(toml_key), allocatable :: keys(:)
     type(tosd_element_t) :: element
     character(:), allocatable :: name
-    type(toml_table), pointer :: inner
     class(toml_value), pointer :: child
     integer :: i
 
+    nullify (child)
     element % path = path
     call read_properties(self, table, path, element)
     if (size(path) > 0) call push_element(self, element)
 
-    call get_keys(table, keys)
+    call table % get_keys(keys)
     do i = 1, size(keys)
       name = trim(adjustl(keys(i) % key))
       if (is_property(name)) cycle                       ! already consumed above
       if (name == tosd_children) then
         ! the escape namespace: what is inside are LITERAL document keys
-        call get_value(table, "children", inner)
-        if (associated(inner)) call walk_literal(self, inner, path)
+        call table % get("children", child)
+        if (.not. associated(child)) cycle
+        select type (child)
+        type is (toml_table)
+          call walk_literal(self, child, path)
+        end select
         cycle
       end if
-      child => lookup(table, name)
-      if (is_table(child)) call walk(self, as_table(table, name), [path, name])
+      call table % get(trim(name), child)
+      if (.not. associated(child)) cycle
+      select type (child)
+      type is (toml_table)
+        call walk(self, child, tosd_extend_path(path, name))
+      class default
+        ! a scalar (or array) entry that is neither a property nor a child
+        ! table is malformed: refuse it instead of silently ignoring it
+        call self % errors % add(tosd_err_schema, join(tosd_extend_path(path, name)), &
+             "unknown schema entry '"//trim(name)//"' (not a property, not a child table)")
+      end select
     end do
   end subroutine walk
 
@@ -136,16 +160,26 @@ contains
 
     type(toml_key), allocatable :: keys(:)
     type(tosd_element_t) :: element
-    type(toml_table), pointer :: child
+    character(:), allocatable :: name
+    class(toml_value), pointer :: child
     integer :: i
 
+    nullify (child)
     element % path = path
     call read_properties(self, table, path, element)
     if (size(path) > 0) call push_element(self, element)
-    call get_keys(table, keys)
+    call table % get_keys(keys)
     do i = 1, size(keys)
-      call get_value(table, trim(adjustl(keys(i) % key)), child)
-      if (associated(child)) call walk_literal(self, child, [path, trim(adjustl(keys(i) % key))])
+      name = trim(adjustl(keys(i) % key))
+      ! `dependentrequired` is the only table-valued property: it belongs to
+      ! this level (already consumed above), never to a literal document key.
+      if (trim(name) == "dependentrequired") cycle
+      call table % get(trim(name), child)
+      if (.not. associated(child)) cycle
+      select type (child)
+      type is (toml_table)
+        call walk_literal(self, child, tosd_extend_path(path, trim(name)))
+      end select
     end do
   end subroutine walk_literal
 
@@ -157,44 +191,81 @@ contains
     type(tosd_element_t), intent(inout) :: element
 
     type(toml_key), allocatable :: keys(:)
+    class(toml_value), pointer :: v
     type(toml_array), pointer :: arr
-    character(:), allocatable :: name, tipo, problem
-    integer :: i, j, n
+    type(toml_table), pointer :: dep
+    character(:), allocatable :: name, tipo, item
+    integer :: i, j, n, stat
 
-    call get_keys(table, keys)
+    nullify (v, arr, dep)
+    call table % get_keys(keys)
     do i = 1, size(keys)
       name = trim(adjustl(keys(i) % key))
       if (.not. is_property(name)) cycle
       if (.not. is_supported(name)) then
         call self % errors % add(tosd_err_unsupported, join(path), &
-             "property '"//name//"' is recognised by TOML Schema 1.0 but not implemented here")
+             "property '"//trim(name)//"' is recognised by TOML Schema 1.0 but not implemented here")
         cycle
       end if
-      select case (name)
+      call table % get(trim(name), v)
+      if (.not. associated(v)) cycle
+      select case (trim(name))
       case ("type")
-        call get_value(table, "type", tipo)
-        element % kind = kind_from_name(tipo)
-        if (element % kind == tosd_collection) &
-          call self % errors % add(tosd_err_unsupported, join(path), "'collection' is not implemented here")
-        if (element % kind < 0) &
-          call self % errors % add(tosd_err_schema, join(path), "unknown built-in type '"//tipo//"'")
+        select type (v)
+        type is (toml_keyval)
+          tipo = ""
+          call get_value(v, tipo, stat=stat)
+          element % kind = kind_from_name(tipo)
+          if (element % kind == tosd_collection) &
+            call self % errors % add(tosd_err_unsupported, join(path), &
+                 "'collection' is not implemented here")
+          if (element % kind < 0) &
+            call self % errors % add(tosd_err_schema, join(path), &
+                 "unknown built-in type '"//trim(tipo)//"'")
+        end select
       case ("optional")
-        call get_value(table, "optional", element % optional)
+        select type (v)
+        type is (toml_keyval)
+          call get_value(v, element % optional, stat=stat)
+          if (stat /= 0) &
+            call self % errors % add(tosd_err_schema, join(path), "'optional' must be a boolean")
+        end select
       case ("itemtype")
-        call get_value(table, "itemtype", tipo)
-        element % itemtype = kind_from_name(tipo)
+        select type (v)
+        type is (toml_keyval)
+          item = ""
+          call get_value(v, item, stat=stat)
+          element % itemtype = kind_from_name(item)
+          if (element % itemtype < 0) &
+            call self % errors % add(tosd_err_schema, join(path), &
+                 "unknown built-in type '"//trim(item)//"'")
+        end select
       case ("allowedvalues")
-        call get_value(table, "allowedvalues", arr)
-        if (associated(arr)) then
-          n = arr % get_len()
+        select type (v)
+        type is (toml_array)
+          arr => v
+          n = tosd_len(arr)
           allocate (character(256) :: element % allowed(n))
           do j = 1, n
-            call get_value(arr, j, element % allowed(j))
+            item = ""
+            call get_value(arr, j, item, stat=stat)
+            if (stat /= 0) then
+              ! only string enums are enforced here: refuse, never ignore
+              call self % errors % add(tosd_err_unsupported, join(path), &
+                   "non-string 'allowedvalues' are not implemented here")
+              deallocate (element % allowed)
+              exit
+            end if
+            element % allowed(j) = item
           end do
-          element % is_enum = .true.
-        end if
+          if (allocated(element % allowed)) element % is_enum = .true.
+        end select
       case ("dependentrequired")
-        call read_dependent(self, table, path)
+        select type (v)
+        type is (toml_table)
+          dep => v
+          call read_dependent(self, dep, path)
+        end select
       case ("description", "default", "deprecated")
         continue                                          ! annotations: accepted, inert
       end select
@@ -207,26 +278,39 @@ contains
     type(toml_table), intent(in) :: table
     character(*), intent(in) :: path(:)
 
-    type(toml_table), pointer :: dep
     type(toml_key), allocatable :: keys(:)
+    class(toml_value), pointer :: v
     type(toml_array), pointer :: arr
     type(tosd_dep_t) :: rule
-    integer :: i, j, n
+    character(:), allocatable :: item
+    integer :: i, j, n, stat
 
-    call get_value(table, "dependentrequired", dep)
-    if (.not. associated(dep)) return
-    call get_keys(dep, keys)
+    nullify (v, arr)
+    call table % get_keys(keys)
     do i = 1, size(keys)
+      if (allocated(rule % requires)) deallocate (rule % requires)
       rule % path = path
       rule % trigger = trim(adjustl(keys(i) % key))
-      call get_value(dep, rule % trigger, arr)
-      if (.not. associated(arr)) cycle
-      n = arr % get_len()
-      allocate (character(256) :: rule % requires(n))
-      do j = 1, n
-        call get_value(arr, j, rule % requires(j))
-      end do
-      call push_dependency(self, rule)
+      call table % get(trim(rule % trigger), v)
+      if (.not. associated(v)) cycle
+      select type (v)
+      type is (toml_array)
+        arr => v
+        n = tosd_len(arr)
+        allocate (character(256) :: rule % requires(n))
+        do j = 1, n
+          item = ""
+          call get_value(arr, j, item, stat=stat)
+          if (stat /= 0) then
+            call self % errors % add(tosd_err_schema, join(path), &
+                 "'dependentrequired' entries must be strings")
+            deallocate (rule % requires)
+            exit
+          end if
+          rule % requires(j) = item
+        end do
+        if (allocated(rule % requires)) call push_dependency(self, rule)
+      end select
     end do
   end subroutine read_dependent
 
@@ -322,14 +406,21 @@ contains
     type(toml_table), intent(in) :: table
     character(*), intent(in) :: name
     class(toml_value), pointer :: v
-    v => table % get(trim(name))
+    nullify (v)
+    call table % get(trim(name), v)
   end function lookup
 
   function as_table(table, name) result(t)
     type(toml_table), intent(in) :: table
     character(*), intent(in) :: name
     type(toml_table), pointer :: t
-    call get_value(table, trim(name), t)
+    class(toml_value), pointer :: v
+    nullify (t, v)
+    call table % get(trim(name), v)
+    select type (v)
+    type is (toml_table)
+      t => v
+    end select
   end function as_table
 
   subroutine schema_free(self)

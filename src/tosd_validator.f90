@@ -9,7 +9,8 @@ module tosd_validator
   use tosd_errors
   use tosd_schema
   use tomlf, only: toml_table, toml_array, toml_keyval, toml_value, toml_key, &
-                   toml_load, get_value, get_keys, toml_error
+                   toml_load, get_value, toml_error, toml_stat
+  use tomlf_constants, only: toml_type
   implicit none
   private
 
@@ -47,7 +48,7 @@ contains
     type(toml_table), allocatable :: doc
     type(toml_error), allocatable :: error
 
-    call toml_load(doc, filename, error)
+    call toml_load(doc, filename, error=error)
     if (allocated(error)) then
       call errors % add(tosd_err_schema, "", "cannot parse "//filename//": "//error%message)
       return
@@ -59,9 +60,8 @@ contains
   subroutine check_element(schema, doc, e, errors)
     type(tosd_schema_t), intent(in) :: schema
     type(toml_table), intent(in) :: doc
-    type(tosd_error_t) :: ignored
-    type(tosd_error_list_t), intent(inout) :: errors
     type(tosd_element_t), intent(in) :: e
+    type(tosd_error_list_t), intent(inout) :: errors
 
     class(toml_value), pointer :: v
     character(:), allocatable :: p
@@ -77,7 +77,8 @@ contains
     end if
     call check_kind(e, v, p, errors)
     if (e % is_enum) call check_allowed(e, v, p, errors)
-    call check_children_declared(schema, e, v, p, errors)
+    ! `any` accepts any value, including tables with undeclared keys
+    if (e % kind /= tosd_any) call check_children_declared(schema, e, v, p, errors)
   end subroutine check_element
 
   !! The TOML kind of the value must match the declared built-in type.
@@ -101,11 +102,12 @@ contains
     character(*), intent(in) :: p
     type(tosd_error_list_t), intent(inout) :: errors
     character(:), allocatable :: s
-    integer :: i
+    integer :: i, stat
 
     select type (v)
     type is (toml_keyval)
-      call get_value(v, s)
+      call get_value(v, s, stat=stat)
+      if (stat /= toml_stat % success) return
     class default
       return
     end select
@@ -135,10 +137,10 @@ contains
     class default
       return
     end select
-    call get_keys(t, keys)
+    call t % get_keys(keys)
     do i = 1, size(keys)
       child = trim(adjustl(keys(i) % key))
-      if (declared(schema, [e % path, child])) cycle
+      if (declared(schema, tosd_extend_path(e % path, child))) cycle
       cp = p//"."//child
       if (len(p) == 0) cp = child
       call errors % add(tosd_err_unexpected, cp, "key is not described by the schema")
@@ -157,11 +159,11 @@ contains
 
     p = path_string(rule % path)
     if (.not. present_in(doc, rule % path, v)) return
-    if (.not. present_in(doc, [rule % path, rule % trigger], w)) return
+    if (.not. present_in(doc, tosd_extend_path(rule % path, rule % trigger), w)) return
     do i = 1, size(rule % requires)
       q = p//"."//trim(rule % requires(i))
       if (len(p) == 0) q = trim(rule % requires(i))
-      if (.not. present_in(doc, [rule % path, rule % requires(i)], w)) then
+      if (.not. present_in(doc, tosd_extend_path(rule % path, rule % requires(i)), w)) then
         call errors % add(tosd_err_dependent, q, "required by dependentrequired triggered by sibling '"// &
              trim(rule % trigger)//"'")
       end if
@@ -170,16 +172,17 @@ contains
 
   !--------------------------------------------------------------- helpers
 
-  !! Resolve a dotted path inside a parsed document.
+  !! Resolve a dotted path inside a parsed document. Uses only the
+  !! `intent(in)`-safe `% get` / `% has_key` bindings.
   logical function present_in(doc, path, v) result(found)
     type(toml_table), intent(in) :: doc
     character(*), intent(in) :: path(:)
     class(toml_value), pointer, intent(out) :: v
+    class(toml_value), pointer :: w
     type(toml_table), pointer :: t
-    type(toml_array), pointer :: a
     integer :: i
 
-    nullify (v, t, a)
+    nullify (v, w, t)
     if (size(path) == 0) then
       found = .false.
       return
@@ -188,50 +191,34 @@ contains
       found = .false.
       return
     end if
-    if (size(path) == 1) then
-      v => doc % get(trim(path(1)))
-      found = .true.
+    call doc % get(trim(path(1)), v)
+    if (.not. associated(v)) then
+      found = .false.
       return
     end if
-    found = .false.
-    if (.not. is_table(doc % get(trim(path(1))))) then return
-    call get_value(doc, trim(path(1)), t)
-    if (.not. associated(t)) return
-    call descend(t, path(2:), v, found)
+    do i = 2, size(path)
+      select type (v)
+      type is (toml_table)
+        t => v
+      class default
+        nullify (v)
+        found = .false.
+        return
+      end select
+      if (.not. t % has_key(trim(path(i)))) then
+        nullify (v)
+        found = .false.
+        return
+      end if
+      call t % get(trim(path(i)), w)
+      v => w
+      if (.not. associated(v)) then
+        found = .false.
+        return
+      end if
+    end do
+    found = .true.
   end function present_in
-
-  recursive subroutine descend(t, path, v, found)
-    type(toml_table), intent(in) :: t
-    character(*), intent(in) :: path(:)
-    class(toml_value), pointer, intent(out) :: v
-    logical, intent(out) :: found
-    type(toml_table), pointer :: next
-
-    nullify (v, next)
-    if (size(path) == 0) then
-      found = .false.
-      return
-    end if
-    if (.not. t % has_key(trim(path(1)))) then
-      found = .false.
-      return
-    end if
-    if (size(path) == 1) then
-      v => t % get(trim(path(1)))
-      found = .true.
-      return
-    end if
-    if (.not. is_table(t % get(trim(path(1))))) then
-      found = .false.
-      return
-    end if
-    call get_value(t, trim(path(1)), next)
-    if (.not. associated(next)) then
-      found = .false.
-      return
-    end if
-    call descend(next, path(2:), v, found)
-  end subroutine descend
 
   !! Is this exact path declared in the schema (or is it on the way to one)?
   logical function declared(schema, path) result(yes)
@@ -259,34 +246,32 @@ contains
     end select
   end function is_table
 
-  !! The TOML kind actually found, as a name.
+  !! The TOML kind actually found, as a name. Key-value scalars are
+  !! distinguished by the stored type (`get_type`), not by probing values.
   function kind_of(v) result(name)
     class(toml_value), pointer, intent(in) :: v
     character(:), allocatable :: name
-    character(:), allocatable :: s
-    integer :: i
-    real(wp) :: r
-    logical :: b
 
     select type (v)
-    type is (toml_table); name = "table"
-    type is (toml_array); name = "array"
+    type is (toml_table)
+      name = "table"
+    type is (toml_array)
+      name = "array"
     type is (toml_keyval)
-      s = ""
-      call get_value(v, s)
-      if (len_trim(s) > 0) then
+      select case (v % get_type())
+      case (toml_type % string)
         name = "string"
-        return
-      end if
-      i = 0
-      call get_value(v, i)
-      if (i /= 0) then
+      case (toml_type % int)
         name = "integer"
-        return
-      end if
-      r = 0.0_wp
-      call get_value(v, r)
-      name = "float"
+      case (toml_type % float)
+        name = "float"
+      case (toml_type % boolean)
+        name = "boolean"
+      case (toml_type % datetime)
+        name = "datetime"
+      case default
+        name = "unknown"
+      end select
     class default
       name = "unknown"
     end select
@@ -299,7 +284,7 @@ contains
     case (tosd_string);  yes = trim(got) == "string"
     case (tosd_integer); yes = trim(got) == "integer"
     case (tosd_float);   yes = trim(got) == "float" .or. trim(got) == "integer"
-    case (tosd_boolean); yes = .false.                     ! keyval bool: not distinguished here
+    case (tosd_boolean); yes = trim(got) == "boolean"
     case (tosd_table);   yes = trim(got) == "table"
     case (tosd_array);   yes = trim(got) == "array"
     case default;        yes = .true.

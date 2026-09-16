@@ -7,8 +7,9 @@ description = "TOML Schema (.tosd) validation in pure Fortran: validates TOML do
 keywords = ["toml", "schema", "validation", "config"]
 categories = ["configuration", "io"]
 
-# A MESMA fonte que o CheesyHam usa, para o fpm deduplicar quando este pacote for uma
-# dependencia dele (duas fontes diferentes do mesmo modulo = colisao).
+# The same toml-f source our downstream users pin, so fpm resolves a single
+# toml-f when this package is used as a dependency (two different sources of
+# the same Fortran module names would collide).
 [dependencies]
 toml-f = { git = "https://github.com/14NGiestas/toml-f" }
 

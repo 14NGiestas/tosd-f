@@ -8,6 +8,8 @@ module tosd_kinds
   public :: wp
   public :: tosd_any, tosd_string, tosd_integer, tosd_float, tosd_boolean
   public :: tosd_table, tosd_array, tosd_collection
+  public :: tosd_properties, tosd_children
+  public :: tosd_path_len, tosd_extend_path
 
   integer, parameter :: wp = real64
 
@@ -35,5 +37,31 @@ module tosd_kinds
   !> written as `children.<key>` in the schema (SPEC.md, "The first `children`
   !> segment is the escape namespace").
   character(*), parameter :: tosd_children = "children"
+
+  !> Fixed width for key-path components passed between procedures.
+  !>
+  !> Rationale (measured 2026-09-16, gfortran 15): an array constructor such as
+  !> `[path, name]` where `path` is an assumed-length (`character(*)`) dummy
+  !> silently yields zero-length, content-less elements. All path extension goes
+  !> through [[tosd_extend_path]], which only uses scalar assignments into an
+  !> explicitly-sized buffer.
+  integer, parameter :: tosd_path_len = 256
+
+contains
+
+  !> Return `path` with `key` appended (pure, no array constructor).
+  pure function tosd_extend_path(path, key) result(newpath)
+    character(*), intent(in) :: path(:)
+    character(*), intent(in) :: key
+    character(tosd_path_len), allocatable :: newpath(:)
+    integer :: n, i
+
+    n = size(path)
+    allocate (newpath(n + 1))
+    do i = 1, n
+      newpath(i) = path(i)
+    end do
+    newpath(n + 1) = key
+  end function tosd_extend_path
 
 end module tosd_kinds
