@@ -8,10 +8,7 @@ license = "Apache-2.0 OR MIT"
 keywords = ["toml", "schema", "validation", "config"]
 categories = ["configuration", "io"]
 
-# Upstream toml-f (https://github.com/toml-f/toml-f). Pinned to upstream rather
-# than any fork: this package is public and standalone, and fpm resolves a
-# dependency by source URL -- a fork pin here would collide with a different
-# toml-f elsewhere in a consumer's build.
+# Upstream toml-f (validated against 0.5.x).
 [dependencies]
 toml-f = { git = "https://github.com/toml-f/toml-f" }
 
