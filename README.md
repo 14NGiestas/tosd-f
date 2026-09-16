@@ -23,11 +23,14 @@ end if
 ```
 
 Build and test (note: the `fpm` on a default PATH may be an unrelated tool —
-use the Fortran Package Manager):
+use the Fortran Package Manager). With Nix (pinned toolchain):
 
 ```bash
-fortran-fpm test
+nix develop --command bash -c "fortran-fpm test"
 ```
+
+Without Nix: install `gfortran` + `fortran-fpm` (0.13+) and run `fortran-fpm test`.
+On CI (`.github/workflows/fpm.yml`) the Nix route above is used.
 
 ## Dependency choice (deliberate)
 
@@ -103,4 +106,5 @@ Details that had to be read off the dependency source rather than guessed:
 
 ## License
 
-Not decided yet (deliberately left out of `fpm.toml`).
+Dual-licensed `Apache-2.0 OR MIT` (`LICENSE-Apache`, `LICENSE-MIT`), the same
+pair as toml-f.

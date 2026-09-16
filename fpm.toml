@@ -4,6 +4,7 @@ author = "Ian Giestas Pauli"
 maintainer = "iangiestaspauli@gmail.com"
 copyright = "Copyright 2026, Ian Giestas Pauli"
 description = "TOML Schema (.tosd) validation in pure Fortran: validates TOML documents against a schema written in TOML."
+license = "Apache-2.0 OR MIT"
 keywords = ["toml", "schema", "validation", "config"]
 categories = ["configuration", "io"]
 

@@ -1,0 +1,32 @@
+name: fpm
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Install Nix
+      uses: DeterminateSystems/nix-installer-action@main
+      with:
+        extra-conf: |
+          extra-experimental-features = nix-command flakes
+
+    - name: Enable Nix Cache
+      uses: DeterminateSystems/magic-nix-cache-action@main
+
+    - name: Build and test
+      # No env vars set: docs_dir_scan skips, the other 7 tests run.
+      run: nix develop --command bash -c "fortran-fpm test"
