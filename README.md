@@ -133,6 +133,11 @@ conditionals/`keypattern`/`pattern`/`format`/min/max/length/
 spec rejects are still accepted (version semantics, `default` kind check,
 reserved built-in names).
 
+CI enforces the tally: the workflow checks out the corpus at a pinned SPEC
+commit and runs with `TOSD_CONFORMANCE_MIN_PASS=42`, so any regression in
+the passing cases fails the build. (Bump the pin and the floor together,
+and only after the tally improves.)
+
 ## Notes on the toml-f API (validated against 0.5.x)
 
 Non-obvious points at the dependency boundary:

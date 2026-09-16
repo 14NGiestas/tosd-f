@@ -11,6 +11,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Pinned SPEC corpus commit (brunoborges/toml-schema). Bump deliberately:
+  # raising TOSD_CONFORMANCE_MIN_PASS only after the tally improves.
+  SPEC_SHA: 60ff76d18698f09499821e331baa6819745c24f6
+  TOSD_CONFORMANCE_MIN_PASS: 42
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -28,5 +34,18 @@ jobs:
       uses: DeterminateSystems/magic-nix-cache-action@main
 
     - name: Build and test
-      # No env vars set: docs_dir_scan skips, the other 7 tests run.
+      # No env vars set: docs_dir_scan skips, the other 9 tests run.
       run: nix develop --command bash -c "fortran-fpm test"
+
+    - name: Checkout SPEC corpus
+      uses: actions/checkout@v4
+      with:
+        repository: brunoborges/toml-schema
+        ref: ${{ env.SPEC_SHA }}
+        path: spec-corpus
+        sparse-checkout: conformance
+
+    - name: Conformance (flags regressions)
+      run: |
+        nix develop --command bash -c "TOSD_CONFORMANCE_DIR=$PWD/spec-corpus/conformance \
+          TOSD_CONFORMANCE_MIN_PASS=$TOSD_CONFORMANCE_MIN_PASS fortran-fpm test"
