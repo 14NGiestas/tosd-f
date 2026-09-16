@@ -1,0 +1,17 @@
+[toml-schema]
+version = "1.0.0"
+
+[elements.server]
+type = "table"
+
+[elements.server.host]
+type = "string"
+
+[elements.server.port]
+type = "integer"
+optional = true
+
+[elements.server.mode]
+type = "string"
+allowedvalues = ["debug", "release"]
+optional = true

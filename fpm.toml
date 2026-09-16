@@ -25,4 +25,4 @@ source-dir = "test"
 [build]
 auto-executables = false
 auto-tests = false
-auto-examples = false
+auto-examples = true

@@ -32,6 +32,28 @@ nix develop --command bash -c "fortran-fpm test"
 Without Nix: install `gfortran` + `fortran-fpm` (0.13+) and run `fortran-fpm test`.
 On CI (`.github/workflows/fpm.yml`) the Nix route above is used.
 
+## Example
+
+`example/` holds a runnable demo (`schema.tosd` + a passing and a failing
+document). Run it from the package root:
+
+```bash
+fortran-fpm run --example demo
+```
+
+```text
+--- schema declares:
+schema version "1.0.0"
+server : table
+server.host : string
+server.port : integer optional
+server.mode : string optional allowed=['debug', 'release']
+--- good.toml valid: T
+--- bad.toml valid: F
+server.host: required key is absent (expected string)
+server.mode: 'banana' is not one of the allowed values ("debug", "release")
+```
+
 ## Dependencies
 
 `fpm.toml` pulls the upstream [`toml-f`](https://github.com/toml-f/toml-f)
