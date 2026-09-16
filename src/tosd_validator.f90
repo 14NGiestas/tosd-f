@@ -92,7 +92,7 @@ contains
     if (e % kind == tosd_any) return
     got = kind_of(v)
     if (kind_matches(e % kind, got)) return
-    call errors % add(tosd_err_type, p, "expected "//type_name(e % kind)//", found "//got)
+    call errors % add(tosd_err_type, p, "expected "//tosd_type_name(e % kind)//", found "//got)
   end subroutine check_kind
 
   !! `allowedvalues` membership (strings only, the common case).
@@ -291,24 +291,10 @@ contains
     end select
   end function kind_matches
 
-  pure function type_name(kind) result(name)
-    integer, intent(in) :: kind
-    character(:), allocatable :: name
-    select case (kind)
-    case (tosd_string);  name = "string"
-    case (tosd_integer); name = "integer"
-    case (tosd_float);   name = "float"
-    case (tosd_boolean); name = "boolean"
-    case (tosd_table);   name = "table"
-    case (tosd_array);   name = "array"
-    case default;        name = "any"
-    end select
-  end function type_name
-
   pure function kind_hint(e) result(s)
     type(tosd_element_t), intent(in) :: e
     character(:), allocatable :: s
-    s = " (expected "//type_name(e % kind)//")"
+    s = " (expected "//tosd_type_name(e % kind)//")"
   end function kind_hint
 
   pure function path_string(path) result(s)

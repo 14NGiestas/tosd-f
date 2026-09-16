@@ -49,6 +49,7 @@ module tosd_schema
     procedure :: free => schema_free
     procedure :: is_ok => schema_is_ok
     procedure :: report => schema_report
+    procedure :: dump => schema_dump
   end type tosd_schema_t
 
 contains
@@ -440,5 +441,46 @@ contains
     integer, intent(in), optional :: unit
     call self % errors % report(unit)
   end subroutine schema_report
+
+  !! Write what the schema declares, one `path : kind` line per element plus
+  !! the `dependentrequired` rules. Debugging companion to `tosd_err_unexpected`
+  !! diagnostics ("not described" makes sense once you see what IS described).
+  subroutine schema_dump(self, unit)
+    class(tosd_schema_t), intent(in) :: self
+    integer, intent(in), optional :: unit
+    integer :: u, i, j
+    character(:), allocatable :: line
+
+    u = 6
+    if (present(unit)) u = unit
+    if (allocated(self % version)) &
+      write (u, '(a)') 'schema version "'//self % version//'"'
+    if (.not. allocated(self % elements)) return
+    do i = 1, size(self % elements)
+      line = trim(join(self % elements(i) % path))//" : "// &
+             trim(tosd_type_name(self % elements(i) % kind))
+      if (self % elements(i) % optional) line = line//" optional"
+      if (self % elements(i) % is_enum) then
+        line = line//" allowed=["
+        do j = 1, size(self % elements(i) % allowed)
+          if (j > 1) line = line//", "
+          line = line//"'"//trim(self % elements(i) % allowed(j))//"'"
+        end do
+        line = line//"]"
+      end if
+      write (u, '(a)') line
+    end do
+    if (allocated(self % dependencies)) then
+      do i = 1, size(self % dependencies)
+        line = trim(join(self % dependencies(i) % path))//" requires "// &
+               trim(self % dependencies(i) % trigger)//" -> ["
+        do j = 1, size(self % dependencies(i) % requires)
+          if (j > 1) line = line//", "
+          line = line//trim(self % dependencies(i) % requires(j))
+        end do
+        write (u, '(a)') line//"]"
+      end do
+    end if
+  end subroutine schema_dump
 
 end module tosd_schema

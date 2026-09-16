@@ -24,7 +24,8 @@ contains
       new_unittest("unsupported_property_refused", test_unsupported), &
       new_unittest("spec_compliance_refused", test_compliance), &
       new_unittest("unknown_entry_refused", test_unknown_entry), &
-      new_unittest("docs_dir_scan", test_docs_dir_scan) &
+      new_unittest("docs_dir_scan", test_docs_dir_scan), &
+      new_unittest("schema_dump", test_dump) &
     ]
   end subroutine collect
 
@@ -109,7 +110,8 @@ contains
       '[elements.settings.self_consistency]'//new_line('a')//'type = "table"'//new_line('a')// &
       'optional = true'//new_line('a')// &
       'dependentrequired = { major_concentration = ["major"] }'//new_line('a')// &
-      '[elements.settings.self_consistency.major]'//new_line('a')//'type = "string"'//new_line('a')//'optional = true'//new_line('a')// &
+      '[elements.settings.self_consistency.major]'//new_line('a')// &
+      'type = "string"'//new_line('a')//'optional = true'//new_line('a')// &
       '[elements.settings.self_consistency.major_concentration]'//new_line('a')//'type = "any"'//new_line('a')//'optional = true')
     call write_temp("/tmp/tosd_d.toml", &
       '[settings.self_consistency]'//new_line('a')//'major_concentration = { value = 6.0e11, unit = "cm^-2" }')
@@ -193,7 +195,42 @@ contains
     call check(error, s % errors % items(1) % code, tosd_err_schema)
   end subroutine test_unknown_entry
 
-  !> Generic document-directory scan (no hardcoded paths, no network).
+  !> `schema % dump` lists every declared element; the debugging companion
+  !> to `unexpected key` diagnostics.
+  subroutine test_dump(error)
+    type(error_type), allocatable, intent(out) :: error
+    type(tosd_schema_t) :: s
+    character(256) :: line
+    integer :: u, ios
+    logical :: saw_table, saw_major
+
+    call write_temp("/tmp/tosd_h.tosd", &
+      '[toml-schema]'//new_line('a')//'version = "1.0.0"'//new_line('a')// &
+      '[elements.settings]'//new_line('a')//'type = "table"'//new_line('a')// &
+      'optional = true'//new_line('a')// &
+      '[elements.settings.major]'//new_line('a')//'type = "string"'//new_line('a')// &
+      'allowedvalues = ["hole", "electron"]'//new_line('a')//'optional = true')
+    call s % load("/tmp/tosd_h.tosd")
+    call check(error, s % is_ok(), message="dump fixture loads clean")
+    if (allocated(error)) return
+    open (newunit=u, file="/tmp/tosd_h.dump", status="replace", action="write")
+    call s % dump(u)
+    close (u)
+    saw_table = .false.
+    saw_major = .false.
+    open (newunit=u, file="/tmp/tosd_h.dump", status="old", action="read")
+    do
+      read (u, '(a)', iostat=ios) line
+      if (ios /= 0) exit
+      if (index(line, "settings : table") > 0) saw_table = .true.
+      if (index(line, "settings.major : string") > 0 .and. &
+          index(line, "'hole'") > 0) saw_major = .true.
+    end do
+    close (u)
+    call check(error, saw_table, message="dump lists the table element")
+    if (allocated(error)) return
+    call check(error, saw_major, message="dump lists kind and allowed values")
+  end subroutine test_dump
   !>
   !> Set `TOSD_SCHEMA_FILE` and `TOSD_DOCS_DIR` to validate every `*.toml`
   !> under the directory against the schema. Files that fail to parse are

@@ -63,6 +63,10 @@ Checks performed on documents: required/optional presence, built-in kinds
 table-typed elements (`tosd_err_unexpected`; `any`-typed elements accept
 anything, including tables with undeclared keys).
 
+Introspection: `schema % dump(unit)` writes one `path : kind` line per declared
+element (plus `dependentrequired` rules) — the debugging companion to
+`unexpected key` diagnostics.
+
 ## Directory scan test (no hardcoded paths)
 
 `docs_dir_scan` validates every `*.toml` found recursively under a directory

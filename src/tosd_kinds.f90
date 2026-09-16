@@ -10,6 +10,7 @@ module tosd_kinds
   public :: tosd_table, tosd_array, tosd_collection
   public :: tosd_properties, tosd_children
   public :: tosd_path_len, tosd_extend_path
+  public :: tosd_type_name
 
   integer, parameter :: wp = real64
 
@@ -40,6 +41,9 @@ module tosd_kinds
 
   !> Fixed width for key-path components passed between procedures.
   !>
+  !> INTERNAL USE (stays public only because `tosd_schema` and `tosd_validator`
+  !> share it; not part of the user-facing API).
+  !>
   !> Rationale (measured 2026-09-16, gfortran 15): an array constructor such as
   !> `[path, name]` where `path` is an assumed-length (`character(*)`) dummy
   !> silently yields zero-length, content-less elements. All path extension goes
@@ -50,6 +54,7 @@ module tosd_kinds
 contains
 
   !> Return `path` with `key` appended (pure, no array constructor).
+  !> INTERNAL USE, see [[tosd_path_len]].
   pure function tosd_extend_path(path, key) result(newpath)
     character(*), intent(in) :: path(:)
     character(*), intent(in) :: key
@@ -63,5 +68,21 @@ contains
     end do
     newpath(n + 1) = key
   end function tosd_extend_path
+
+  !> Name of a built-in schema type, for diagnostics and dumps.
+  pure function tosd_type_name(kind) result(name)
+    integer, intent(in) :: kind
+    character(:), allocatable :: name
+    select case (kind)
+    case (tosd_string);     name = "string"
+    case (tosd_integer);    name = "integer"
+    case (tosd_float);      name = "float"
+    case (tosd_boolean);    name = "boolean"
+    case (tosd_table);      name = "table"
+    case (tosd_array);      name = "array"
+    case (tosd_collection); name = "collection"
+    case default;           name = "any"
+    end select
+  end function tosd_type_name
 
 end module tosd_kinds
