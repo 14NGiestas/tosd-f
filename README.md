@@ -32,13 +32,11 @@ nix develop --command bash -c "fortran-fpm test"
 Without Nix: install `gfortran` + `fortran-fpm` (0.13+) and run `fortran-fpm test`.
 On CI (`.github/workflows/fpm.yml`) the Nix route above is used.
 
-## Dependency choice (deliberate)
+## Dependencies
 
-`fpm.toml` depends on the upstream `https://github.com/toml-f/toml-f` —
-deliberately not a fork: this package is public and standalone, and fpm
-resolves a dependency by source URL, so a fork pin here would collide with a
-different toml-f elsewhere in a consumer's build. Validated against upstream
-0.5.x (see API notes below).
+`fpm.toml` pulls the upstream [`toml-f`](https://github.com/toml-f/toml-f)
+(parsing) and `test-drive` (tests) automatically. Validated against toml-f
+0.5.x — see the API notes below if you hit something odd at that boundary.
 
 ## Scope and standard compliance
 
@@ -84,13 +82,13 @@ diagnostics are ignored, mirroring a rules-only run against a partial schema;
 `TOSD_EXPECTED_VIOLATIONS` (default 0) is the expected number of files with
 RULE violations (missing / type / allowed / dependent / value).
 
-## Measured toml-f API notes (2026-09-16)
+## Notes on the toml-f API (validated against 0.5.x)
 
-Details that had to be read off the dependency source rather than guessed:
+Non-obvious points at the dependency boundary:
 
 - `get_keys` is **type-bound**: `call table % get_keys(list)` with
   `type(toml_key), allocatable :: list(:)` (field `% key`).
-- Array length is the `len` generic (`use tomlf, only: my_len => len`, to avoid
+- Array length is the `len` generic (`use tomlf, only: tosd_len => len`, to avoid
   shadowing the intrinsic); elements come from `call arr % get(j, ptr)`
   (subroutine form) or directly via `call get_value(arr, j, string)`.
 - In 0.5.x **every** table/array read binding (`% get`, `% get_keys`, `% has_key`,
