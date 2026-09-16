@@ -1,0 +1,28 @@
+name = "tosd-f"
+version = "0.1.0"
+author = "Ian Giestas Pauli"
+maintainer = "iangiestaspauli@gmail.com"
+copyright = "Copyright 2026, Ian Giestas Pauli"
+description = "TOML Schema (.tosd) validation in pure Fortran: validates TOML documents against a schema written in TOML."
+keywords = ["toml", "schema", "validation", "config"]
+categories = ["configuration", "io"]
+
+# A MESMA fonte que o CheesyHam usa, para o fpm deduplicar quando este pacote for uma
+# dependencia dele (duas fontes diferentes do mesmo modulo = colisao).
+[dependencies]
+toml-f = { git = "https://github.com/14NGiestas/toml-f" }
+
+[dev-dependencies]
+test-drive = { git = "https://github.com/fortran-lang/test-drive" }
+
+[library]
+source-dir = "src"
+
+[[test]]
+name = "run_tests"
+source-dir = "test"
+
+[build]
+auto-executables = false
+auto-tests = false
+auto-examples = false
