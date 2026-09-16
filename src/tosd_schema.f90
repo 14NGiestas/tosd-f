@@ -84,7 +84,7 @@ contains
   !! `[toml-schema] version` is required by the language.
   subroutine load_meta(self, root)
     class(tosd_schema_t), intent(inout) :: self
-    type(toml_table), intent(in) :: root
+    type(toml_table), intent(inout) :: root
     class(toml_value), pointer :: v, w
 
     nullify (v, w)
@@ -110,7 +110,7 @@ contains
   !! Recursively read one level of `[elements]`: properties first, then children.
   recursive subroutine walk(self, table, path)
     class(tosd_schema_t), intent(inout) :: self
-    type(toml_table), intent(in) :: table
+    type(toml_table), intent(inout) :: table
     character(*), intent(in) :: path(:)
 
     type(toml_key), allocatable :: keys(:)
@@ -155,7 +155,7 @@ contains
   !! Inside `children`, the keys are literal document keys: append and keep walking.
   recursive subroutine walk_literal(self, table, path)
     class(tosd_schema_t), intent(inout) :: self
-    type(toml_table), intent(in) :: table
+    type(toml_table), intent(inout) :: table
     character(*), intent(in) :: path(:)
 
     type(toml_key), allocatable :: keys(:)
@@ -186,7 +186,7 @@ contains
   !! Read the properties of one definition (children are handled by the caller).
   subroutine read_properties(self, table, path, element)
     class(tosd_schema_t), intent(inout) :: self
-    type(toml_table), intent(in) :: table
+    type(toml_table), intent(inout) :: table
     character(*), intent(in) :: path(:)
     type(tosd_element_t), intent(inout) :: element
 
@@ -275,7 +275,7 @@ contains
   !! `dependentrequired = { trigger = ["a", "b"] }` on a table definition.
   subroutine read_dependent(self, table, path)
     class(tosd_schema_t), intent(inout) :: self
-    type(toml_table), intent(in) :: table
+    type(toml_table), intent(inout) :: table
     character(*), intent(in) :: path(:)
 
     type(toml_key), allocatable :: keys(:)
@@ -403,7 +403,7 @@ contains
   end function is_table
 
   function lookup(table, name) result(v)
-    type(toml_table), intent(in) :: table
+    type(toml_table), intent(inout) :: table
     character(*), intent(in) :: name
     class(toml_value), pointer :: v
     nullify (v)
@@ -411,7 +411,7 @@ contains
   end function lookup
 
   function as_table(table, name) result(t)
-    type(toml_table), intent(in) :: table
+    type(toml_table), intent(inout) :: table
     character(*), intent(in) :: name
     type(toml_table), pointer :: t
     class(toml_value), pointer :: v

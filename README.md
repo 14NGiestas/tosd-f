@@ -34,10 +34,11 @@ On CI (`.github/workflows/fpm.yml`) the Nix route above is used.
 
 ## Dependency choice (deliberate)
 
-`fpm.toml` depends on `https://github.com/14NGiestas/toml-f` — **the same source**
-our downstream users pin, so that when this package is used as a dependency the fpm
-resolves a single toml-f (two different sources of the same Fortran module names
-would collide).
+`fpm.toml` depends on the upstream `https://github.com/toml-f/toml-f` —
+deliberately not a fork: this package is public and standalone, and fpm
+resolves a dependency by source URL, so a fork pin here would collide with a
+different toml-f elsewhere in a consumer's build. Validated against upstream
+0.5.x (see API notes below).
 
 ## Scope and standard compliance
 
@@ -92,9 +93,11 @@ Details that had to be read off the dependency source rather than guessed:
 - Array length is the `len` generic (`use tomlf, only: my_len => len`, to avoid
   shadowing the intrinsic); elements come from `call arr % get(j, ptr)`
   (subroutine form) or directly via `call get_value(arr, j, string)`.
-- All `get_value` overloads on tables take the table as `intent(inout)` —
-  this library therefore reads tables only through the `intent(in)`-safe
-  `% get` / `% has_key` bindings plus `get_value` on `toml_keyval`/arrays.
+- In 0.5.x **every** table/array read binding (`% get`, `% get_keys`, `% has_key`,
+  all `get_value` table/array overloads) takes its object as `intent(inout)`.
+  Consequently this library's table dummies — including the public
+  `tosd_validate(schema, doc, errors)` document — are `intent(inout)`.
+  Only `toml_keyval` getters and the `len` generic stay `intent(in)`-safe.
 - `toml_load(table, file, error=error)` — the error dummy must be passed by
   keyword (positionally it would bind to `config`).
 - Scalar kinds are distinguished with `toml_keyval % get_type()` against

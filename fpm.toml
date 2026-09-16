@@ -8,11 +8,12 @@ license = "Apache-2.0 OR MIT"
 keywords = ["toml", "schema", "validation", "config"]
 categories = ["configuration", "io"]
 
-# The same toml-f source our downstream users pin, so fpm resolves a single
-# toml-f when this package is used as a dependency (two different sources of
-# the same Fortran module names would collide).
+# Upstream toml-f (https://github.com/toml-f/toml-f). Pinned to upstream rather
+# than any fork: this package is public and standalone, and fpm resolves a
+# dependency by source URL -- a fork pin here would collide with a different
+# toml-f elsewhere in a consumer's build.
 [dependencies]
-toml-f = { git = "https://github.com/14NGiestas/toml-f" }
+toml-f = { git = "https://github.com/toml-f/toml-f" }
 
 [dev-dependencies]
 test-drive = { git = "https://github.com/fortran-lang/test-drive" }

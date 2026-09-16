@@ -21,7 +21,7 @@ contains
   !! Validate a document already parsed by toml-f.
   subroutine tosd_validate(schema, doc, errors)
     type(tosd_schema_t), intent(in) :: schema
-    type(toml_table), intent(in) :: doc
+    type(toml_table), intent(inout) :: doc
     type(tosd_error_list_t), intent(out) :: errors
 
     integer :: i
@@ -59,7 +59,7 @@ contains
   !! One definition: presence, kind, allowedvalues, then the subtree.
   subroutine check_element(schema, doc, e, errors)
     type(tosd_schema_t), intent(in) :: schema
-    type(toml_table), intent(in) :: doc
+    type(toml_table), intent(inout) :: doc
     type(tosd_element_t), intent(in) :: e
     type(tosd_error_list_t), intent(inout) :: errors
 
@@ -149,7 +149,7 @@ contains
 
   !! `dependentrequired`: in the rule's table, `trigger` present implies `requires` present.
   subroutine check_dependency(doc, rule, errors)
-    type(toml_table), intent(in) :: doc
+    type(toml_table), intent(inout) :: doc
     type(tosd_dep_t), intent(in) :: rule
     type(tosd_error_list_t), intent(inout) :: errors
 
@@ -175,7 +175,7 @@ contains
   !! Resolve a dotted path inside a parsed document. Uses only the
   !! `intent(in)`-safe `% get` / `% has_key` bindings.
   logical function present_in(doc, path, v) result(found)
-    type(toml_table), intent(in) :: doc
+    type(toml_table), intent(inout) :: doc
     character(*), intent(in) :: path(:)
     class(toml_value), pointer, intent(out) :: v
     class(toml_value), pointer :: w
